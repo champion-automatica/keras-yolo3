@@ -4,8 +4,13 @@ import os
 import json
 import logging
 import requests
+from collections import OrderedDict
+
 from PIL import Image
 
+
+#enable info logging.
+logging.getLogger().setLevel(logging.INFO)
 
 REPLACE = {
     'Курвуазье VSOP 0.7': 'Курвуазье VSOP',
@@ -16,9 +21,7 @@ REPLACE = {
     'Курвуазье VS 0.5': 'Курвуазье VS',
 }
 
-
-#enable info logging.
-logging.getLogger().setLevel(logging.INFO)
+PROCESSED = OrderedDict(files=0)
 
 
 def maybe_download(image_url, image_dir):
@@ -43,8 +46,6 @@ def maybe_download(image_url, image_dir):
 
 
 def get_xml_for_bbx(bbx_label, bbx_data, width, height):
-    if bbx_label in REPLACE:
-        bbx_label = bbx_label[bbx_label]
 
     if len(bbx_data['points']) == 4:
         # Regular BBX has 4 points of the rectangle.
@@ -105,6 +106,7 @@ def convert_to_PascalVOC(dataturks_labeled_item, image_dir, xml_out_dir):
 
         filePath = maybe_download(image_url, image_dir)
 
+
         with Image.open(filePath) as img:
             width, height = img.size
 
@@ -135,13 +137,19 @@ def convert_to_PascalVOC(dataturks_labeled_item, image_dir, xml_out_dir):
                 bbx_labels = [bbx_labels]
 
             for bbx_label in bbx_labels:
+                if bbx_label in REPLACE:
+                    bbx_label = REPLACE[bbx_label]
                 xml = xml + get_xml_for_bbx(bbx_label, bbx, width, height)
+                if bbx_label not in PROCESSED:
+                    PROCESSED[bbx_label] = 1
+                else:
+                    PROCESSED[bbx_label] += 1
 
         xml = xml + "</annotation>"
 
         # output to a file.
         xmlFilePath = os.path.join(xml_out_dir, fileName + ".xml")
-        with open(xmlFilePath, 'w') as f:
+        with open(xmlFilePath, 'w', encoding='utf-8') as f:
             f.write(xml)
         return True
     except Exception as e:
@@ -165,7 +173,7 @@ def main():
         return
 
     lines = []
-    with open(dataturks_JSON_FilePath, 'r') as f:
+    with open(dataturks_JSON_FilePath, 'r', encoding='utf-8') as f:
         lines = f.readlines()
 
     if (not lines or len(lines) == 0):
@@ -177,15 +185,14 @@ def main():
     success = 0
     for line in lines:
         status = convert_to_PascalVOC(line, image_download_dir, pascal_voc_xml_dir)
-        if (status):
-            success = success + 1
+        if status:
+            PROCESSED['files'] += 1
 
-        count += 1;
-        if (count % 10 == 0):
+        count += 1
+        if count % 10 == 0:
             logging.info(str(count) + " items done ...")
 
-    logging.info("Completed: " + str(success) + " items done, " + str(
-        len(lines) - success) + " items ignored due to errors or for being skipped items.")
+    logging.info('Completed\n{}\nSkipped'.format(PROCESSED, len(lines) - success))
 
 
 def create_arg_parser():
